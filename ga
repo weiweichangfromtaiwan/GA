@@ -1,0 +1,311 @@
+#installing of GA package API GA
+library(googleAnalyticsR)
+library(googleAuthR)
+library(readr)
+library(ggplot2)
+library(forecast)
+library(reshape2)
+library(statsr)
+library(RColorBrewer)
+library("quantmod")
+library("reshape2")
+library("plyr")
+library("scales")
+library("zoo")
+
+
+#launch GA to R and loging
+ga_auth()
+ga_account_list()
+my_account = ga_account_list()
+my_id = my_account$viewId[1]
+# time period
+start_date = "2018-07-01"
+end_date = "2018-09-30"
+
+#### Filter
+MA <- dim_filter(dimension = "region", operator = "EXACT", expressions = "Massachusetts")
+US_filter <- dim_filter(dimension="country",operator="EXACT",expressions="United States")
+desktop_filter <- dim_filter(dimension = "deviceCategory", operator = "EXACT", expressions = "desktop")
+tablet_filter <- dim_filter(dimension = "deviceCategory", operator = "EXACT", expressions = "tablet")
+mobile_filter <- dim_filter(dimension = "deviceCategory", operator = "EXACT", expressions = "mobile")
+
+my_US_filter <- filter_clause_ga4(list(US_filter))
+
+US_desktop_filter<- filter_clause_ga4(list(US_filter,desktop_filter),operator = "AND")
+US_Tablet_filter<- filter_clause_ga4(list(US_filter,tablet_filter),operator = "AND")
+US_mobile_filter<- filter_clause_ga4(list(US_filter,mobile_filter),operator = "AND")
+###example: filter="ga:country==United States",
+
+
+
+
+###GA_ad
+
+GA_ad <- google_analytics(my_id, 
+                          date_range = c(start_date, end_date), 
+                          metrics = c("adCost","adClicks","costPerconversion","costPerGoalConversion"), 
+                          dimensions = c("adGroup"),
+                          dim_filters = my_US_filter,
+                          anti_sample = TRUE)
+
+
+
+ggplot(GA_ad, aes(x=adGroup,y= adCost, group=1))+
+  geom_line()+
+  theme(axis.text.x = element_text(angle = 90,hjust = 1))
+
+
+ggplot(GA_ad, aes(adGroup, adCost)) + 
+  geom_bar(aes(fill = adGroup), stat="identity")
+
+GA_ad
+
+# pageview with source and medium
+# target selection
+metrics.topic = c("pageviews", "sessions", "bounceRate", "totalConversions")
+dimenstions.topic = c("date","hour","minute","pagepath", "source", "medium", "landingpagePath","deviceCategory")
+
+PageViews = google_analytics (my_id,
+                             date_range = c(start_date, end_date),
+                             metrics = metrics.topic[1],
+                             dimensions = c("date","source","medium"),
+                             dim_filters = US_desktop_filter,
+                             max = -1) # all data
+PageViews
+
+# Martics = rows
+#dimensions = cols
+# July to Sep pageview
+
+
+US_filter <- dim_filter(dimension="country",operator="EXACT",expressions="United States")
+
+my_US_filter <- filter_clause_ga4(list(US_filter))
+
+
+
+unsampled_data_fetch <- google_analytics(my_id, 
+                                         date_range = c(start_date, end_date), 
+                                         metrics = c("pageviews","users","sessions","bounceRate","avgSessionDuration"), 
+                                         dimensions = c("date"),
+                                         dim_filters = US_desktop_filter,
+                                         anti_sample = TRUE)
+
+
+unsampled_data_fetch 
+
+
+
+summary(unsampled_data_fetch)
+
+
+#section max and min
+subset(unsampled_data_fetch, unsampled_data_fetch$sessions == max(unsampled_data_fetch$sessions)) 
+subset(unsampled_data_fetch, unsampled_data_fetch$sessions == min(unsampled_data_fetch$sessions))
+sum(unsampled_data_fetch$sessions)
+
+#line chart (sesions)
+ggplot(unsampled_data_fetch, aes(x=date,y= sessions, group=1))+
+  geom_line()+
+  theme(axis.text.x = element_text(angle = 90,hjust = 1))
+  
+#line chart (pageviews)
+ggplot(unsampled_data_fetch, aes(x=date,y= pageviews, group=1))+
+  geom_line()+
+  theme(axis.text.x = element_text(angle = 90,hjust = 1))
+
+#line chart (users)
+ggplot(unsampled_data_fetch, aes(x=date,y= users, group=1))+
+  geom_line()+
+  theme(axis.text.x = element_text(angle = 90,hjust = 1))
+
+
+
+
+# plot chart(session)
+
+ggplot(unsampled_data_fetch, aes(x=date, y=avgSessionDuration)) +
+  geom_point()
+
+# plot chart(pageviews)
+ggplot(unsampled_data_fetch, aes(x=date, y=pageviews)) +
+  geom_point()
+
+#plot chart(users)
+ggplot(unsampled_data_fetch, aes(x=date, y=users)) +
+  geom_point()
+
+
+
+
+
+#plot chat with trend
+
+ggplot(data=unsampled_data_fetch, aes(x=unsampled_data_fetch$date, y=unsampled_data_fetch$users)) +
+  geom_point()+
+  geom_smooth()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggplot(data=unsampled_data_fetch, aes(x=unsampled_data_fetch$date, y=unsampled_data_fetch$pageviews)) +
+  geom_point()+
+  geom_smooth()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggplot(data=unsampled_data_fetch, aes(x=unsampled_data_fetch$date, y=unsampled_data_fetch$avgSessionDuration)) +
+  geom_point()+
+  geom_smooth()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+#forcasting 
+timeseries = ts(unsampled_data_fetch$sessions,frequency = 10)
+components = decompose(timeseries)
+plot(components)
+
+unsampled_data_fetch$adjusted <- unsampled_data_fetch$sessions - components$seasonal
+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+forecastmodel <- HoltWinters(timeseries)
+plot(forecastmodel)
+
+forecast <- forecast:::forecast.HoltWinters(forecastmodel, h=90) # 90 days in future
+plot(forecast, xlim=c(0,20))
+
+
+
+
+forecastdf <- as.data.frame(forecast)
+totalrows <- nrow(unsampled_data_fetch) + nrow(forecastdf)
+forecastdata <- data.frame(day=c(1:totalrows),
+                           actual=c(unsampled_data_fetch$sessions,rep(NA,nrow(forecastdf))),
+                           forecast=c(rep(NA,nrow(unsampled_data_fetch)-1),tail(unsampled_data_fetch$sessions,1),forecastdf$"Point Forecast"),
+                           forecastupper=c(rep(NA,nrow(unsampled_data_fetch)-1),tail(unsampled_data_fetch$sessions,1),forecastdf$"Hi 80"),
+                           forecastlower=c(rep(NA,nrow(unsampled_data_fetch)-1),tail(unsampled_data_fetch$sessions,1),forecastdf$"Lo 80")
+)
+
+
+
+
+
+
+ggplot(forecastdata, aes(x=day)) +
+  geom_line(aes(y=actual),color="black") +
+  geom_line(aes(y=forecast),color="blue") +
+  geom_ribbon(aes(ymin=forecastlower,ymax=forecastupper), alpha=0.4, fill="green") +
+  xlim(c(90,200)) +
+  labs(title = "US_desktop session forecasting")
+  xlab("Day") +
+  ylab("Sessions")
+
+
+#heatmap
+
+
+heatmapdata <- google_analytics(my_id, 
+                                date_range = c(start_date, end_date), 
+                                metrics = c("avgSessionDuration"), 
+                                dimensions = c("dayOfWeekName", "hour"),
+                                max = 5000,
+                                dim_filters = US_desktop_filter,
+                                anti_sample = TRUE)
+
+heatmapdata$dayOfWeekName <- factor(heatmapdata$dayOfWeekName, levels = c("Sunday", 
+                                                                          "Monday", 
+                                                                          "Tuesday", 
+                                                                          "Wednesday", 
+                                                                          "Thursday", 
+                                                                          "Friday", 
+                                                                          "Saturday"))
+heatmapdata[order(heatmapdata$dayOfWeekName),]
+  
+              
+
+
+
+heatmap_data <- xtabs(avgSessionDuration ~ dayOfWeekName + hour, data=heatmapdata )
+
+
+
+
+heatmap(heatmap_data, 
+        col=colorRampPalette(brewer.pal(9,"Blues"))(100), 
+        revC=TRUE,                                        
+        scale="none",                                     
+        Rowv=NA, Colv=NA,                                 
+        main="avgSessionDuration by Day and Hour_US_desktop",                 
+        xlab="Hour") 
+
+
+
+#comparsion on devices
+devicecomparsion <- google_analytics(my_id, 
+                                     date_range = c(start_date, end_date), 
+                                     metrics = c("pageviews","users","avgSessionDuration","bounceRate"), 
+                                     dimensions = c("date","deviceCategory"),
+                                     dim_filters = my_US_filter,
+                                     anti_sample = TRUE)
+
+ggplot(devicecomparsion, aes(deviceCategory, bounceRate)) +   
+  geom_bar(aes(fill = deviceCategory), stat="identity")
+
+
+ggplot(devicecomparsion, aes(deviceCategory, avgSessionDuration)) +   
+  geom_bar(aes(fill = deviceCategory), stat="identity")
+
+
+
+
+
+
+#### Cal for avgsessionDuration and BounceRate
+
+gadata <- google_analytics(my_id, 
+                           date_range = c(start_date, end_date), 
+                           metrics = c("avgSessionDuration","bounceRate"), 
+                           dimensions = c("date"),
+                           max = 5000,
+                           filter="ga:region==Massachusetts",
+                           anti_sample = TRUE)
+
+
+gadata$year <- as.numeric(format(as.Date(gadata$date),"%Y"))
+gadata$month <- as.numeric(format(as.Date(gadata$date),"%m"))
+gadata$monthf <- factor(gadata$month,levels=as.character(1:12),
+                        labels=c("Jan","Feb","Mar","Apr","May","Jun",
+                                 "Jul","Aug","Sep","Oct","Nov","Dec"),
+                        ordered=TRUE)
+gadata$weekday <- as.POSIXlt(gadata$date)$wday
+gadata$weekday[gadata$weekday==0] <- 7
+gadata$weekdayf <- factor(gadata$weekday,levels=rev(1:7),
+                          labels=rev(c("Mon","Tue","Wed","Thu","Fri","Sat","Sun")),
+                          ordered=TRUE)
+gadata$yearmonth <- as.numeric(format(as.Date(gadata$date),"%Y%m"))
+gadata$yearmonthf <- factor(gadata$yearmonth)
+gadata$week <- as.numeric(format(as.Date(gadata$date,format="%Y%m%d"),"%W"))
+gadata <- ddply(gadata,.(yearmonthf),transform,monthweek=1+week-min(week))
+
+# Plot for calendar
+calendar_sessions <- ggplot(gadata, aes(monthweek, weekdayf, fill = avgSessionDuration)) +
+  geom_tile(colour = "red") +
+  facet_grid(year~monthf) +
+  scale_fill_gradient(high="steelblue",low="white") +
+  theme_bw() + 
+  geom_point(aes(monthweek, weekdayf, size=bounceRate,alpha=bounceRate),color="firebrick") +
+  theme(panel.grid.minor=element_blank(), panel.grid.major=element_blank()) +
+  labs(title = "Calendar_US_Desktop") +
+  xlab("Week of month") +
+  ylab("")
+
+# View calendar
+calendar_sessions
+
+
+
+
+
+
+
+
+
